@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Terminal, AlertCircle, Home } from 'lucide-react';
@@ -9,6 +9,21 @@ const PHASES = [
   { id: 'analyze', label: '> running ai analysis engine...',     done: '✓ llm inference complete' },
   { id: 'render',  label: '> compiling audit report...',         done: '✓ dashboard ready' },
 ];
+const REQUEST_TIMEOUT_MS = 45_000;
+
+async function requestAnalysis(repoUrl, signal) {
+  const response = await fetch('http://127.0.0.1:5000/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo_url: repoUrl }),
+    signal,
+  });
+  const data = await response.json();
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || `Request failed with status ${response.status}`);
+  }
+  return data;
+}
 
 export default function ScanningPage() {
   const [activePhase, setActivePhase]   = useState(0);
@@ -23,6 +38,24 @@ export default function ScanningPage() {
   const searchParams = new URLSearchParams(location.search);
   const repoUrl      = searchParams.get('url');
   const compareUrl   = searchParams.get('compare');
+
+  const handleFallback = useCallback((errText) => {
+    setErrorMsg(`Engine failed. Loading sample insights. (${errText})`);
+    const fallback = {
+      success: true,
+      meta: { repo: repoUrl, stars: 1024, forks: 256, files_analyzed: 14, default_branch: 'main', description: 'Fallback sample data' },
+      data: {
+        tech_debt_score: 55,
+        is_mock: true,
+        critical_issues: ['Global state management is brittle', 'Missing error boundaries', 'No test coverage'],
+        refactoring_suggestions: ['Extract components to separate files', 'Add unit tests', 'Implement centralized state management'],
+        architecture_assessment: 'The codebase shows a typical fast-iteration structure. Modularizing core logic will improve maintainability.',
+        positive_findings: ['Consistent variable naming', 'Modern syntax utilized'],
+      },
+      analysis_info: { elapsed_sec: 1.2 },
+    };
+    setTimeout(() => navigate('/results', { state: { resultData: fallback, isFallback: true } }), 3000);
+  }, [navigate, repoUrl]);
 
   // Typewriter for active phase label
   useEffect(() => {
@@ -51,72 +84,54 @@ export default function ScanningPage() {
       if (next < PHASES.length) advancePhase(next);
     }, 2800);
 
+    const controller = new AbortController();
+    let cancelled = false;
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     const performScan = async () => {
       try {
         if (!compareUrl) {
-          const res  = await fetch('http://127.0.0.1:5000/analyze', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ repo_url: repoUrl }),
-          });
-          const data = await res.json();
+          const data = await requestAnalysis(repoUrl, controller.signal);
           clearInterval(phaseTimer);
-          if (data.success) {
-            setCompleted(PHASES.map((p) => p.id));
-            setActivePhase(PHASES.length);
-            setTimeout(() => navigate('/results', { state: { resultData: data } }), 700);
-          } else {
-            handleFallback(data.error);
-          }
+          setCompleted(PHASES.map((p) => p.id));
+          setActivePhase(PHASES.length);
+          setTimeout(() => navigate('/results', { state: { resultData: data } }), 700);
         } else {
           const [res1, res2] = await Promise.allSettled([
-            fetch('http://127.0.0.1:5000/analyze', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ repo_url: repoUrl }),
-            }).then((r) => r.json()),
-            fetch('http://127.0.0.1:5000/analyze', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ repo_url: compareUrl }),
-            }).then((r) => r.json()),
+            requestAnalysis(repoUrl, controller.signal),
+            requestAnalysis(compareUrl, controller.signal),
           ]);
           clearInterval(phaseTimer);
 
-          const data1 = res1.status === 'fulfilled' ? res1.value : { success: false, error: 'Network error' };
-          const data2 = res2.status === 'fulfilled' ? res2.value : { success: false, error: 'Network error' };
+          const data1 = res1.status === 'fulfilled' ? res1.value : { success: false, error: res1.reason?.message || 'Network error' };
+          const data2 = res2.status === 'fulfilled' ? res2.value : { success: false, error: res2.reason?.message || 'Network error' };
 
-          if (!data1.success && !data2.success) { handleFallback('Both repos failed.'); return; }
+          if (!data1.success && !data2.success) {
+            handleFallback(`Both repos failed. ${data1.error}; ${data2.error}`);
+            return;
+          }
 
           setCompleted(PHASES.map((p) => p.id));
           setActivePhase(PHASES.length);
           setTimeout(() => navigate('/results', { state: { resultData: data1, compareData: data2, isComparison: true } }), 700);
         }
-      } catch {
+      } catch (error) {
         clearInterval(phaseTimer);
-        handleFallback('Network error');
+        if (error.name !== 'AbortError' || !cancelled) {
+          const message = error.name === 'AbortError' ? 'Request timed out after 45 seconds' : error.message;
+          handleFallback(message || 'Network error');
+        }
       }
     };
 
-    const handleFallback = (errText) => {
-      clearInterval(phaseTimer);
-      setErrorMsg(`Engine failed. Loading sample insights. (${errText})`);
-      const fallback = {
-        success: true,
-        meta: { repo: repoUrl, stars: 1024, forks: 256, files_analyzed: 14, default_branch: 'main', description: 'Fallback sample data' },
-        data: {
-          tech_debt_score: 55,
-          critical_issues: ['Global state management is brittle', 'Missing error boundaries', 'No test coverage'],
-          refactoring_suggestions: ['Extract components to separate files', 'Add unit tests', 'Implement centralized state management'],
-          architecture_assessment: 'The codebase shows a typical fast-iteration structure. Modularizing core logic will improve maintainability.',
-          positive_findings: ['Consistent variable naming', 'Modern syntax utilized'],
-        },
-        analysis_info: { elapsed_sec: 1.2 },
-      };
-      setTimeout(() => navigate('/results', { state: { resultData: fallback, isFallback: true } }), 3000);
-    };
-
     performScan();
-    return () => clearInterval(phaseTimer);
-  }, [repoUrl, compareUrl, navigate]);
+    return () => {
+      cancelled = true;
+      clearInterval(phaseTimer);
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [compareUrl, handleFallback, navigate, repoUrl]);
 
   const mockCode = `const audit = require('@reposcope/engine');\nconst repo = process.env.REPO_URL;\naudit.run(repo, { depth: 'full', ai: true })\n  .then(r => r.render())\n  .catch(e => console.error(e));\n`;
 

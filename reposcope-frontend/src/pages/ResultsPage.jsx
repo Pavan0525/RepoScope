@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { createElement, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -66,10 +66,10 @@ const MetricCard = ({ label, value, color, grade }) => (
 );
 
 // Stat pill used in "At a Glance" card
-const StatPill = ({ icon: Icon, label, value, color }) => (
+const StatPill = ({ icon, label, value, color }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', minWidth: '80px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#4b5563', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-      <Icon size={11} /> {label}
+      {createElement(icon, { size: 11 })} {label}
     </div>
     <div style={{ fontWeight: 700, fontSize: '0.95rem', color: color || 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
       {value}
