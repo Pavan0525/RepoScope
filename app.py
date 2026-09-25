@@ -364,6 +364,7 @@ def generate_mock_analysis(repo_data: dict) -> dict:
 
     return {
         "tech_debt_score":          score,
+        "is_mock":                  True,
         "code_quality_grade":       code_quality_grade,
         "maintainability_index":    maintainability,
         "critical_issues":          critical_issues,
@@ -441,6 +442,7 @@ Do NOT return generic answers."""
             data["confidence"] = "high" if files >= 10 else "moderate" if files >= 3 else "low"
             data["code_quality_grade"] = _score_to_grade(100 - data.get("tech_debt_score", 50))
             data["maintainability_index"] = _score_to_grade(100 - max(0, data.get("tech_debt_score", 50) - 10))
+            data["is_mock"] = False
             return data
         except Exception as e:
             logger.error(f"Groq API attempt {attempt + 1} failed: {e}")
@@ -468,7 +470,7 @@ def health():
         pass
     return jsonify({
         "status": "ok",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "github_authenticated": bool(GITHUB_TOKEN),
         "rate_limit": rate,
     })
@@ -552,7 +554,7 @@ def analyze():
         "data": analysis,
         "analysis_info": {
             "engine":      "RepoScope Smart Analyser v1.0",
-            "analysed_at": datetime.utcnow().isoformat() + "Z",
+            "analysed_at": datetime.now(timezone.utc).isoformat(),
             "elapsed_sec": elapsed,
         },
     })

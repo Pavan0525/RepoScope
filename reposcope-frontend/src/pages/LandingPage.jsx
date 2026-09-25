@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Sparkles, Loader2, GitCompare, Play, Zap, Clock, Shield } from 'lucide-react';
@@ -27,8 +27,10 @@ export default function LandingPage() {
     } else if (isDeleting && displayed.length > 0) {
       timeout = setTimeout(() => setDisplayed(displayed.slice(0, -1)), 40);
     } else if (isDeleting && displayed.length === 0) {
-      setIsDeleting(false);
-      setWordIndex((wordIndex + 1) % TYPEWRITER_WORDS.length);
+      timeout = setTimeout(() => {
+        setIsDeleting(false);
+        setWordIndex((wordIndex + 1) % TYPEWRITER_WORDS.length);
+      }, 0);
     }
     return () => clearTimeout(timeout);
   }, [displayed, isDeleting, wordIndex]);
